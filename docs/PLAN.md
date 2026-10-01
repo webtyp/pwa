@@ -3,6 +3,8 @@ PLAN: "feat: Generate — manifest.webmanifest, sw.js, head tags and update sign
 TAG: v0.1.0
 EXECUTOR: jules
 REVIEWER: none
+STATUS: running
+SESSION: 11659821305359293204
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
