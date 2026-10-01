@@ -3,6 +3,8 @@
 package tests
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"strings"
@@ -35,15 +37,26 @@ func validShell() []pwa.Asset {
 	}
 }
 
-func TestGenerate_Golden(t *testing.T) {
+// generate runs both steps the way a compiler does: New, then ServiceWorker.
+func generate(t *testing.T, cfg pwa.Config, icons []pwa.Icon, shell []pwa.Asset) (pwa.App, pwa.Worker) {
+	t.Helper()
+	app, err := pwa.New(cfg, icons)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	w, err := app.ServiceWorker(shell)
+	if err != nil {
+		t.Fatalf("ServiceWorker: %v", err)
+	}
+	return app, w
+}
+
+func TestGolden(t *testing.T) {
 	cfg := validConfig()
 	icons := validIcons()
 	shell := validShell()
 
-	b, err := pwa.Generate(cfg, icons, shell)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	b, w := generate(t, cfg, icons, shell)
 
 	manifestGolden, err := os.ReadFile("testdata/manifest.webmanifest")
 	if err != nil {
@@ -73,12 +86,12 @@ func TestGenerate_Golden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read golden sw.js: %v", err)
 	}
-	if string(b.ServiceWorker) != string(swGolden) {
-		t.Errorf("ServiceWorker mismatch.\nGot:  %s\nWant: %s", string(b.ServiceWorker), string(swGolden))
+	if string(w.Script) != string(swGolden) {
+		t.Errorf("ServiceWorker mismatch.\nGot:  %s\nWant: %s", string(w.Script), string(swGolden))
 	}
 }
 
-func TestGenerate_VersionIgnoresOrder(t *testing.T) {
+func TestVersionIgnoresOrder(t *testing.T) {
 	cfg := validConfig()
 	icons := validIcons()
 
@@ -93,14 +106,8 @@ func TestGenerate_VersionIgnoresOrder(t *testing.T) {
 		{URL: "/a.js", Revision: "r2"},
 	}
 
-	b1, err := pwa.Generate(cfg, icons, shell1)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	b2, err := pwa.Generate(cfg, icons, shell2)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, b1 := generate(t, cfg, icons, shell1)
+	_, b2 := generate(t, cfg, icons, shell2)
 
 	if b1.Version != b2.Version {
 		t.Errorf("Versions should match for reordered shell assets: %q vs %q", b1.Version, b2.Version)
@@ -114,17 +121,14 @@ func TestGenerate_VersionIgnoresOrder(t *testing.T) {
 		{URL: "/a.js", Revision: "r2_changed"},
 		{URL: "/b.css", Revision: "r3"},
 	}
-	b3, err := pwa.Generate(cfg, icons, shell3)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, b3 := generate(t, cfg, icons, shell3)
 
 	if b1.Version == b3.Version {
 		t.Errorf("Version should change when revision changes")
 	}
 }
 
-func TestGenerate_Errors(t *testing.T) {
+func TestErrors(t *testing.T) {
 	tests := []struct {
 		name    string
 		cfg     pwa.Config
@@ -229,7 +233,12 @@ func TestGenerate_Errors(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := pwa.Generate(tc.cfg, tc.icons, tc.shell)
+			// Each validation is owned by one step: New checks config and icons,
+			// ServiceWorker checks the shell.
+			app, err := pwa.New(tc.cfg, tc.icons)
+			if err == nil {
+				_, err = app.ServiceWorker(tc.shell)
+			}
 			if err == nil {
 				t.Fatalf("expected error %q, got nil", tc.wantErr)
 			}
@@ -240,13 +249,10 @@ func TestGenerate_Errors(t *testing.T) {
 	}
 }
 
-func TestGenerate_ShortNameDefaultsToName(t *testing.T) {
+func TestShortNameDefaultsToName(t *testing.T) {
 	cfg := validConfig()
 	cfg.ShortName = ""
-	b, err := pwa.Generate(cfg, validIcons(), validShell())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	b, _ := generate(t, cfg, validIcons(), validShell())
 
 	var m map[string]any
 	if err := json.Unmarshal(b.Manifest, &m); err != nil {
@@ -257,11 +263,8 @@ func TestGenerate_ShortNameDefaultsToName(t *testing.T) {
 	}
 }
 
-func TestGenerate_ManifestIsValidJSON(t *testing.T) {
-	b, err := pwa.Generate(validConfig(), validIcons(), validShell())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func TestManifestIsValidJSON(t *testing.T) {
+	b, _ := generate(t, validConfig(), validIcons(), validShell())
 
 	var m map[string]any
 	if err := json.Unmarshal(b.Manifest, &m); err != nil {
@@ -277,13 +280,10 @@ func TestGenerate_ManifestIsValidJSON(t *testing.T) {
 }
 
 func TestServiceWorker_UsesProtocolNames(t *testing.T) {
-	b, err := pwa.Generate(validConfig(), validIcons(), validShell())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	b, w := generate(t, validConfig(), validIcons(), validShell())
 
-	swStr := string(b.ServiceWorker)
-	if !strings.Contains(swStr, pwa.CachePrefix+b.Version) {
+	swStr := string(w.Script)
+	if !strings.Contains(swStr, pwa.CachePrefix+w.Version) {
 		t.Errorf("SW expected to contain cache name with prefix and version")
 	}
 	if !strings.Contains(swStr, pwa.MessageSkipWaiting) {
@@ -300,12 +300,9 @@ func TestServiceWorker_UsesProtocolNames(t *testing.T) {
 }
 
 func TestServiceWorker_NoSkipWaitingOnInstall(t *testing.T) {
-	b, err := pwa.Generate(validConfig(), validIcons(), validShell())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, w := generate(t, validConfig(), validIcons(), validShell())
 
-	swStr := string(b.ServiceWorker)
+	swStr := string(w.Script)
 
 	installIdx := strings.Index(swStr, `"install"`)
 	activateIdx := strings.Index(swStr, `"activate"`)
@@ -320,5 +317,39 @@ func TestServiceWorker_NoSkipWaitingOnInstall(t *testing.T) {
 
 	if strings.Contains(swStr, "clients.claim") {
 		t.Errorf("SW must not contain clients.claim")
+	}
+}
+
+// TestConsumerShaped follows the order a compiler must use: New, insert the head tags and the
+// register script, hash the final files, then ServiceWorker. A change to the HTML after the tags
+// were inserted is a new version.
+func TestConsumerShaped(t *testing.T) {
+	app, err := pwa.New(validConfig(), validIcons())
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := "<html><head>" + app.HeadTags + "</head><body></body></html>"
+	js := "console.log(1);\n" + app.RegisterScript
+	rev := func(s string) string {
+		sum := sha256.Sum256([]byte(s))
+		return hex.EncodeToString(sum[:8])
+	}
+	shell := []pwa.Asset{{URL: "/", Revision: rev(html)}, {URL: "/script.0d4e5f60.js", Revision: rev(js)}}
+	w1, err := app.ServiceWorker(shell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []string{`"/"`, `"/script.0d4e5f60.js"`} {
+		if !strings.Contains(string(w1.Script), u) {
+			t.Errorf("service worker does not precache %s", u)
+		}
+	}
+	shell[0].Revision = rev(html + "<!-- edited -->")
+	w2, err := app.ServiceWorker(shell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w1.Version == w2.Version {
+		t.Error("editing the HTML did not change the version")
 	}
 }

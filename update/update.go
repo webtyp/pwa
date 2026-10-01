@@ -13,68 +13,70 @@ import (
 // take over: immediately if one already waits, otherwise when the service worker reports it. It
 // never calls fn when the browser has no service worker. Call it once, from the page.
 func OnReady(fn func()) {
-	nav := js.Global().Get("navigator")
-	if nav.IsUndefined() || nav.IsNull() {
+	sw := serviceWorker()
+	if !present(sw) {
 		return
 	}
-	sw := nav.Get("serviceWorker")
-	if sw.IsUndefined() || sw.IsNull() {
-		return
-	}
-
+	win := js.Global()
 	fired := false
-	callOnce := func() {
-		if !fired {
-			fired = true
-			fn()
+	var cb js.Func
+	// fire runs fn at most once and removes the listener before releasing it, so a later
+	// event never reaches a released function.
+	fire := func() {
+		if fired {
+			return
 		}
+		fired = true
+		win.Call("removeEventListener", pwa.EventUpdateReady, cb)
+		cb.Release()
+		fn()
 	}
+	cb = js.FuncOf(func(js.Value, []js.Value) any {
+		fire()
+		return nil
+	})
+	// The listener is registered before OnReady returns: an event dispatched right after the
+	// call must not be lost while the registration lookup below is still pending.
+	win.Call("addEventListener", pwa.EventUpdateReady, cb)
 
 	go func() {
-		regVal, err := await.Promise(sw.Call("getRegistration"))
-		if err == nil && !regVal.IsUndefined() && !regVal.IsNull() {
-			waiting := regVal.Get("waiting")
-			controller := sw.Get("controller")
-			if !waiting.IsUndefined() && !waiting.IsNull() && !controller.IsUndefined() && !controller.IsNull() {
-				callOnce()
-				return
-			}
+		reg, err := await.Promise(sw.Call("getRegistration"))
+		if err != nil || !present(reg) {
+			return
 		}
-
-		var cb js.Func
-		cb = js.FuncOf(func(this js.Value, args []js.Value) any {
-			callOnce()
-			cb.Release()
-			return nil
-		})
-		js.Global().Call("addEventListener", pwa.EventUpdateReady, cb)
+		if present(reg.Get("waiting")) && present(sw.Get("controller")) {
+			fire()
+		}
 	}()
 }
 
 // Apply tells the waiting version to take over; the page then reloads by itself (the registration
 // script does it). It returns ErrNoUpdate when no version is waiting.
 func Apply() error {
-	nav := js.Global().Get("navigator")
-	if nav.IsUndefined() || nav.IsNull() {
+	sw := serviceWorker()
+	if !present(sw) {
 		return ErrNoUpdate
 	}
-	sw := nav.Get("serviceWorker")
-	if sw.IsUndefined() || sw.IsNull() {
+	reg, err := await.Promise(sw.Call("getRegistration"))
+	if err != nil || !present(reg) {
 		return ErrNoUpdate
 	}
-
-	regVal, err := await.Promise(sw.Call("getRegistration"))
-	if err != nil || regVal.IsUndefined() || regVal.IsNull() {
+	waiting := reg.Get("waiting")
+	if !present(waiting) {
 		return ErrNoUpdate
 	}
-
-	waiting := regVal.Get("waiting")
-	if waiting.IsUndefined() || waiting.IsNull() {
-		return ErrNoUpdate
-	}
-
-	msgObj := js.Global().Get("Object").New()
-	msgObj.Set("type", pwa.MessageSkipWaiting)
-	waiting.Call("postMessage", msgObj)
+	msg := js.Global().Get("Object").New()
+	msg.Set("type", pwa.MessageSkipWaiting)
+	waiting.Call("postMessage", msg)
 	return nil
 }
+
+func serviceWorker() js.Value {
+	nav := js.Global().Get("navigator")
+	if !present(nav) {
+		return js.Undefined()
+	}
+	return nav.Get("serviceWorker")
+}
+
+func present(v js.Value) bool { return !v.IsUndefined() && !v.IsNull() }
