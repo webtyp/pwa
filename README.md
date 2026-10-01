@@ -18,6 +18,7 @@ Build-time generator of `manifest.webmanifest` and `sw.js` for webtyp applicatio
 | Service worker for the hashed shell | `worker, err := app.ServiceWorker(shell)` |
 | Know when a new version is waiting | `update.OnReady(fn)` |
 | Switch to the waiting version | `update.Apply()` |
+| Name a file by its content / pick its `Cache-Control` | `pwa.HashedName`, `pwa.IsHashedName`, `pwa.CacheControl` |
 
 > **Note:** `webtyp/sitec` calls both steps when a project declares `PWA() pwa.Config`; a project
 > never calls them by hand. The order matters and the types enforce it: insert `app.HeadTags` into

@@ -41,11 +41,21 @@ A new service worker waits until the page explicitly calls `update.Apply()` (or 
 
 The service worker strictly caches URLs listed in the application shell (`SHELL` array). Any request not in `SHELL` (such as API endpoints, `/__webtyp/ca`, or large model weight artifacts in OPFS) passes through unaffected without service worker interception.
 
-## HTTP Caching Headers
+## Names and HTTP caching — one contract, in `naming.go`
 
-The HTTP server or CDN hosting the application (not this library) should apply the following cache headers:
+The compiler that writes the files (`sitec`), the servers that send them (`server/httpd`,
+`goflare`) and the service worker read one rule instead of re-deriving it:
 
-- **Hashed Assets** (e.g., `/style.3f9a1c2b.css`, `/client.9a8b7c6d.wasm`):
-  `Cache-Control: public, max-age=31536000, immutable`
-- **Unversioned Shell Endpoints** (`/`, `/sw.js`, `/manifest.webmanifest`):
-  `Cache-Control: no-cache`
+| I want to… | Use |
+|---|---|
+| name a file by its content | `pwa.HashedName("style.css", content)` → `style.3f9a1c2b.css` (`HashLen` = 8) |
+| know whether a path is content-hashed | `pwa.IsHashedName(path)` |
+| pick the `Cache-Control` header for a path | `pwa.CacheControl(path)` |
+
+| Path | `Cache-Control` | Why |
+|---|---|---|
+| content-hashed name | `CacheImmutable` (`public, max-age=31536000, immutable`) | the name changes when the bytes change |
+| under `ArtifactsDir` (`/artifacts/`) | `CacheNoStore` (`no-store`) | `webtyp/artifacts` keeps them in OPFS; an HTTP cache would hold a second copy of hundreds of MB |
+| anything else (`/`, `sw.js`, `manifest.webmanifest`, icons) | `CacheRevalidate` (`no-cache`) | fixed names: ask the server every time (ETag) |
+
+Large artifacts are never part of the precached shell.
