@@ -1,5 +1,5 @@
 ---
-PLAN: "feat: Generate — manifest.webmanifest, sw.js, head tags and update signal for webtyp apps"
+PLAN: "feat: New + ServiceWorker — manifest.webmanifest, sw.js, head tags and update signal for webtyp apps"
 TAG: v0.1.0
 EXECUTOR: jules
 REVIEWER: none
@@ -38,10 +38,14 @@ skeleton (`go.mod`, `doc.go`, `README.md`); keep `doc.go`'s package comment.
    - What differs: no runtime caching strategies, no plugin system, no configuration of routes —
      one fixed strategy (precache + cache-first for exactly the listed URLs), because webtyp emits a
      known, small shell. Large artifacts are another library (OPFS, not Cache Storage).
-2. **Novice-name test.** `pwa.Generate(cfg, icons, shell)` → "generate the PWA files". `pwa.Config`
-   (name, colors), `pwa.Asset` (URL + revision), `pwa.Icon`, `pwa.Build` (what you get).
+2. **Novice-name test.** `app, err := pwa.New(cfg, icons)` → "a new PWA app from this config and
+   these icons"; it carries `app.Manifest`, `app.HeadTags`, `app.RegisterScript`.
+   `worker, err := app.ServiceWorker(shell)` → "the service worker for this shell"; it carries
+   `worker.Script` and `worker.Version`. Two steps on purpose: the caller must insert the head tags
+   and the register script into the HTML and JS **before** hashing them, and only the hashed shell
+   gives the service worker. The types make that order the only one that compiles.
    `update.OnReady(fn)` → "on update ready, call fn"; `update.Apply()` → "apply the update".
-3. **Complexity ledger.** New library: +5 types/functions at build time, +2 at run time. A project
+3. **Complexity ledger.** New library: +6 types/functions at build time, +2 at run time. A project
    adds one method, `PWA() pwa.Config` (wired in sitec by a later plan). Ways to do the same thing:
    **−1** once `js.ServiceWorker` is deleted (another plan of the same wave, in `webtyp/js`).
 4. **Where it belongs.** Its own repo (D-PWA-11): `sitec` compiles assets and must not learn what a
@@ -54,11 +58,11 @@ skeleton (`go.mod`, `doc.go`, `README.md`); keep `doc.go`'s package comment.
 ```go
 package pwa
 
-// Names shared by the files Generate writes and the page code in pwa/update.
+// Names shared by the files this package writes and the page code in pwa/update.
 const (
 	ManifestPath       = "/manifest.webmanifest" // where the manifest must be served
 	ServiceWorkerPath  = "/sw.js"                // where the service worker must be served (scope "/")
-	CachePrefix        = "webtyp-shell-"         // Cache Storage name = CachePrefix + Build.Version
+	CachePrefix        = "webtyp-shell-"         // Cache Storage name = CachePrefix + Worker.Version
 	EventUpdateReady   = "webtyp-update-ready"   // dispatched on window when a new version waits
 	MessageSkipWaiting = "webtyp-skip-waiting"   // posted to the waiting worker to take over
 )
@@ -91,22 +95,32 @@ type Icon struct {
 	Type  string // "image/png"
 }
 
-// Build is everything an application needs to be installable and start offline.
-type Build struct {
+// App is what makes an application installable. Build it with New.
+type App struct {
 	Manifest       []byte // serve at ManifestPath
-	ServiceWorker  []byte // serve at ServiceWorkerPath
 	HeadTags       string // insert in <head> of every HTML page
 	RegisterScript string // append to the page's main script
-	Version        string // 16 hex chars; identifies this exact set of shell assets
 }
 
-// Generate validates the inputs and returns the files. The shell must list every file the page
-// needs to start, including "/" (the HTML page); it must not list ServiceWorkerPath.
-func Generate(c Config, icons []Icon, shell []Asset) (Build, error)
+// New validates the config and icons and returns the files that do not depend on the shell.
+func New(c Config, icons []Icon) (App, error)
+
+// Worker is the service worker of one exact set of shell assets.
+type Worker struct {
+	Script  []byte // serve at ServiceWorkerPath
+	Version string // 16 hex chars; identifies this exact set of shell assets
+}
+
+// ServiceWorker returns the service worker that precaches shell. The shell must list every file
+// the page needs to start, including "/" (the HTML page, after HeadTags were inserted); it must not
+// list ServiceWorkerPath.
+func (a App) ServiceWorker(shell []Asset) (Worker, error)
 ```
 
-Validation, in this order, each error a named constant with this exact text (use `errors.New` /
-`fmt.Errorf` — standard library is allowed here):
+Validation, each error a named constant with this exact text (use `errors.New` / `fmt.Errorf` —
+standard library is allowed here). `New` checks the first three rows in order; `ServiceWorker` the
+rest in order. `ServiceWorker` is a method only so that it cannot be called without a validated
+`App`; it does not need anything else from it:
 
 | Condition | Error text |
 |---|---|
@@ -137,7 +151,7 @@ icons in the order given.
 `<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="` + ThemeColor + `">`
 (built from the constants; the color is already validated, so no escaping is needed).
 
-**ServiceWorker** (`sw.go`): a `text/template` (or string building) that produces exactly this
+**Worker.Script** (`sw.go`): a `text/template` (or string building) that produces exactly this
 program, where `{{VERSION}}` is the version and `{{SHELL}}` is the JSON array of the shell URLs in
 sorted order (marshal a `[]string` with `encoding/json`). The constants come from `protocol.go`,
 never retyped:
@@ -234,12 +248,13 @@ Build side, `tests/generate_test.go` (`//go:build !wasm`):
 
 | Test | Proves |
 |---|---|
-| `TestGenerate_Golden` | a fixed `Config`, icons 192/512, shell `/`, `/style.3f9a1c2b.css`, `/script.0d4e5f60.js`, `/client.9a8b7c6d.wasm` → `Manifest`, `ServiceWorker`, `HeadTags`, `RegisterScript` equal `tests/testdata/{manifest.webmanifest,sw.js,head.html,register.js}` byte for byte (write the golden files from the templates above, by hand, and review them) |
-| `TestGenerate_VersionIgnoresOrder` | same shell shuffled → same `Version`; one `Revision` changed → different `Version`; `len(Version) == 16` |
-| `TestGenerate_Errors` | one row per validation in the table, asserting the exact text |
-| `TestGenerate_ShortNameDefaultsToName` | manifest JSON `short_name` equals `Name` |
-| `TestGenerate_ManifestIsValidJSON` | `json.Unmarshal` into a map works; `display == "standalone"`, `start_url == "/"` |
-| `TestServiceWorker_UsesProtocolNames` | the SW contains `pwa.CachePrefix + b.Version` and `pwa.MessageSkipWaiting`; the register script contains `pwa.ServiceWorkerPath` and `pwa.EventUpdateReady` |
+| `TestGolden` | a fixed `Config`, icons 192/512 → `New`; shell `/`, `/style.3f9a1c2b.css`, `/script.0d4e5f60.js`, `/client.9a8b7c6d.wasm` → `ServiceWorker`; `app.Manifest`, `worker.Script`, `app.HeadTags`, `app.RegisterScript` equal `tests/testdata/{manifest.webmanifest,sw.js,head.html,register.js}` byte for byte (write the golden files from the templates above, by hand, and review them) |
+| `TestVersionIgnoresOrder` | same shell shuffled → same `Version`; one `Revision` changed → different `Version`; `len(Version) == 16` |
+| `TestErrors` | one row per validation in the table, asserting the exact text, each from the function that owns it |
+| `TestShortNameDefaultsToName` | manifest JSON `short_name` equals `Name` |
+| `TestManifestIsValidJSON` | `json.Unmarshal` into a map works; `display == "standalone"`, `start_url == "/"` |
+| `TestConsumerShaped` | the order a compiler follows: `New` → append `HeadTags` to an HTML string and `RegisterScript` to a JS string → SHA-256 of each as `Asset.Revision` → `ServiceWorker` → the script lists both URLs; changing the HTML changes `Version` |
+| `TestServiceWorker_UsesProtocolNames` | the worker script contains `pwa.CachePrefix + worker.Version` and `pwa.MessageSkipWaiting`; the register script contains `pwa.ServiceWorkerPath` and `pwa.EventUpdateReady` |
 | `TestServiceWorker_NoSkipWaitingOnInstall` | the text between `"install"` and `"activate"` does not contain `skipWaiting`; the file does not contain `clients.claim` |
 
 Run side, `tests/update_test.go` (`//go:build wasm`, headless browser, the test page has no service
@@ -253,10 +268,11 @@ worker registered):
 
 ## Stage 5 — docs
 
-- `README.md`: what it is (two halves), an "I want X → use Y" table (generate the files → `Generate`;
+- `README.md`: what it is (two halves), an "I want X → use Y" table (manifest, head tags and register
+  script → `New`; service worker of a hashed shell → `App.ServiceWorker`;
   know a new version is ready → `update.OnReady`; switch to it → `update.Apply`), and one example of
-  each. State that `sitec` calls `Generate` when a project declares `PWA() pwa.Config` — a project
-  never calls it by hand.
+  each. State that `sitec` calls `New` and `ServiceWorker` when a project declares
+  `PWA() pwa.Config` — a project never calls them by hand.
 - `docs/ARCHITECTURE.md`: the prior-art comparison of the design gate; the update sequence as a
   mermaid sequence diagram (deploy → browser fetches `sw.js` → new worker installs and precaches →
   waits → `EventUpdateReady` → user accepts → `MessageSkipWaiting` → `controllerchange` → reload);
@@ -273,7 +289,7 @@ worker registered):
 | Stage | Files | Done when |
 |---|---|---|
 | 1 | `protocol.go` | constants |
-| 2 | `pwa.go`, `version.go`, `manifest.go`, `sw.go` | `Generate` with validation |
+| 2 | `pwa.go`, `version.go`, `manifest.go`, `sw.go` | `New`, `App.ServiceWorker`, validation |
 | 3 | `update/update.go` | `OnReady`, `Apply` |
 | 4 | `tests/*`, `tests/testdata/*` | tables green, golden files reviewed |
 | 5 | `README.md`, `docs/ARCHITECTURE.md` | written |
