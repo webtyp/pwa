@@ -1,7 +1,9 @@
 ---
-PLAN: "feat(ui): pwa/ui.UpdatePrompt — \"New version · Reload\" when a new version waits (D-PWA-8)"
+PLAN: "feat(ui): pwa/ui.UpdatePrompt — \\\"New version · Reload\\\" when a new version waits (D-PWA-8)"
 EXECUTOR: jules
 REVIEWER: none
+STATUS: running
+SESSION: 16656536618074201426
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
