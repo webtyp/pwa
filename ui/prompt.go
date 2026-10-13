@@ -7,6 +7,10 @@ import (
 	"webtyp.com/widget"
 )
 
+const nameUpdatePrompt = widget.Name("updateprompt")
+
+var clsRoot = nameUpdatePrompt.Root()
+
 // UpdatePrompt is a "New version · Reload" button that stays hidden until a new version of the app
 // has been downloaded and waits (update.OnReady); clicking it lets that version take over
 // (update.Apply) and the page reloads. Outside the browser it renders hidden and does nothing.
@@ -14,7 +18,7 @@ func UpdatePrompt() Component {
 	p := &prompt{
 		visible: NewBool(false),
 	}
-	p.Element = *Span().Class(string(widget.Name("updateprompt").Root())).Child(Show(p.visible, func() *Element {
+	p.Element = *Span().Set(clsRoot.AsAttr()).Child(Show(p.visible, func() *Element {
 		btn := &actionbutton.ActionButton{
 			Text:    "New version · Reload",
 			Variant: "primary",
@@ -33,6 +37,5 @@ type prompt struct {
 	visible *SignalBool
 }
 
-func (p prompt) WidgetKind() widget.Kind {
-	return widget.Region
-}
+func (p *prompt) WidgetName() widget.Name { return nameUpdatePrompt }
+func (p *prompt) WidgetKind() widget.Kind { return widget.Region }
