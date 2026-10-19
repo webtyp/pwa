@@ -16,5 +16,5 @@ require (
 	webtyp.com/escape v0.1.0 // indirect
 	webtyp.com/fmt v1.0.0 // indirect
 	webtyp.com/font v0.0.5 // indirect
-	webtyp.com/lang v0.1.6 // indirect
+	webtyp.com/lang v0.1.7 // indirect
 )
