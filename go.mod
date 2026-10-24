@@ -5,7 +5,7 @@ go 1.26.8
 require (
 	webtyp.com/await v0.1.2
 	webtyp.com/components v0.8.30
-	webtyp.com/dom v0.13.27
+	webtyp.com/dom v0.13.28
 	webtyp.com/html v0.0.29
 	webtyp.com/widget v0.6.44
 )
