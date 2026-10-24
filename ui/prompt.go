@@ -21,7 +21,7 @@ func UpdatePrompt() Component {
 	p.Element = *Span().Set(clsRoot.AsAttr()).Child(Show(p.visible, func() *Element {
 		btn := &actionbutton.ActionButton{
 			Text:    "New version · Reload",
-			Variant: "primary",
+			Variant: actionbutton.Primary,
 			OnClick: func(Event) {
 				p.apply()
 			},
