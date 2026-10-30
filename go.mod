@@ -7,7 +7,7 @@ require (
 	webtyp.com/components v0.8.57
 	webtyp.com/dom v0.13.29
 	webtyp.com/html v0.0.30
-	webtyp.com/widget v0.6.45
+	webtyp.com/widget v0.6.46
 )
 
 require (
