@@ -1,6 +1,6 @@
 {
-  "languages": ["es"],
+  "languages": ["es", "zh", "hi", "ar", "pt", "fr", "de", "ru"],
   "keys": {
-    "New version · Reload": ["Versión nueva · Recargar"]
+    "New version · Reload": ["Versión nueva · Recargar", "", "", "", "", "", "", ""]
   }
 }
