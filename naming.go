@@ -47,7 +47,7 @@ func isHashAt(base string, end int) bool {
 	}
 	for i := start; i < end; i++ {
 		c := base[i]
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return false
 		}
 	}

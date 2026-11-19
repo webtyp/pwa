@@ -18,7 +18,9 @@ func TestHashedNameIsRecognised(t *testing.T) {
 			t.Errorf("IsHashedName(%q) = true for an unhashed name", name)
 		}
 	}
-	if pwa.HashedName("style.css", []byte("x")) != pwa.HashedName("style.css", []byte("x")) {
+	first := pwa.HashedName("style.css", []byte("x"))
+	second := pwa.HashedName("style.css", []byte("x"))
+	if first != second {
 		t.Error("HashedName is not deterministic")
 	}
 }
