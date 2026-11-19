@@ -14,7 +14,7 @@ require (
 	webtyp.com/color v0.1.2 // indirect
 	webtyp.com/css v0.4.30 // indirect
 	webtyp.com/escape v0.1.0 // indirect
-	webtyp.com/fmt v1.0.0 // indirect
+	webtyp.com/fmt v1.0.2 // indirect
 	webtyp.com/font v0.0.5 // indirect
-	webtyp.com/lang v0.1.16 // indirect
+	webtyp.com/lang v0.1.22 // indirect
 )
